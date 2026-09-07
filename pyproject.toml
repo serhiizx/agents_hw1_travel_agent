@@ -1,0 +1,23 @@
+# Конфігурація для uv. Запуск: uv run python test_runner.py
+# uv сам створить .venv і встановить залежності при першому запуску.
+
+[project]
+name = "hw1-travel-agent"
+version = "1.0.0"
+description = "ДЗ №1: ReAct-агент «Помічник мандрівника» на LangGraph"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=1.0",
+    "langchain-core>=1.0",
+    "langchain-openai>=1.0",
+    "pydantic>=2.0",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+# Проєкт — це набір скриптів, а не пакет для встановлення.
+[tool.uv]
+package = false
