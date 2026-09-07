@@ -150,6 +150,43 @@ def _describe(messages: list) -> tuple[str, list[str]]:
     return text or "(тільки виклики інструментів)", names
 
 
+# Префікси, з яких починається Observation з помилкою: або наш власний текст
+# із інструмента, або повідомлення ToolNode про відхилену Pydantic-валідацію.
+ERROR_PREFIXES = ("Помилка", "Error invoking tool")
+
+
+def build_final_answer(
+    text: str, used_tools: list[str], observations: list[str], stop_reason: str | None
+) -> FinalAnswer:
+    """Зібрати структуровану відповідь із фактів прогону, без другого виклику LLM.
+
+    Раніше тут був окремий llm.with_structured_output(...). Від нього відмовились
+    із двох причин. По-перше, модель час від часу відповідала на службовий промт
+    замість того, щоб переформатувати готову відповідь агента. По-друге, її
+    самооцінка confidence на всіх тест-кейсах дорівнювала рівно 1.0, тобто не
+    несла жодної інформації.
+
+    Тепер confidence — проста евристика за тим, що реально сталося:
+      0.0 — спрацював запобіжник, відповідь свідомо неповна;
+      0.3 — жоден інструмент не викликано, відповідь із власних знань моделі;
+      0.5 — хоча б один інструмент повернув помилку;
+      0.9 — усі викликані інструменти відпрацювали чисто.
+    """
+    if stop_reason:
+        gathered = "\n".join(observations) or "жодних даних зібрати не встигли"
+        return FinalAnswer(
+            answer=f"{text}\n\nЗібрані дані:\n{gathered}", confidence=0.0, sources=used_tools
+        )
+
+    if not used_tools:
+        confidence = 0.3
+    elif any(o.startswith(ERROR_PREFIXES) for o in observations):
+        confidence = 0.5
+    else:
+        confidence = 0.9
+    return FinalAnswer(answer=text, confidence=confidence, sources=used_tools)
+
+
 def run_agent(
     query: str,
     max_steps: int = MAX_STEPS,
@@ -195,32 +232,8 @@ def run_agent(
     # ── Structured output (Завдання 2) ───────────────────────────────────────
     text = str(messages[-1].content)
     tool_calls = [c["name"] for m in messages for c in (getattr(m, "tool_calls", None) or [])]
-    used_tools = sorted(set(tool_calls))
-
-    if stop_reason:
-        # Запобіжник спрацював — LLM тут уже не потрібна: віддаємо чесну
-        # часткову відповідь із того, що встигли зібрати інструменти.
-        observations = [
-            str(m.content) for m in messages if m.__class__.__name__ == "ToolMessage"
-        ]
-        gathered = "\n".join(observations) or "жодних даних зібрати не встигли"
-        final = FinalAnswer(
-            answer=f"{text}\n\nЗібрані дані:\n{gathered}", confidence=0.0, sources=used_tools
-        )
-    else:
-        try:
-            final = llm.with_structured_output(FinalAnswer).invoke([
-                SystemMessage(content=(
-                    "Переклади підсумок роботи агента у структуровану відповідь. "
-                    "Поле answer — українською, стисло. confidence — від 0 до 1. "
-                    f"sources — використані інструменти: {used_tools or 'жодного'}."
-                )),
-                HumanMessage(content=text),
-            ])
-        except Exception as exc:  # модель може не підтримувати structured output
-            final = FinalAnswer(answer=text, confidence=0.5, sources=used_tools)
-            logger.log_step(step_count, "finalize", "structured output недоступний", f"fallback: {exc}")
-
+    observations = [str(m.content) for m in messages if m.__class__.__name__ == "ToolMessage"]
+    final = build_final_answer(text, sorted(set(tool_calls)), observations, stop_reason)
     logger.log_step(step_count, "finalize", text, str(final.model_dump()))
     elapsed_ms = int((time.monotonic() - started) * 1000)
 

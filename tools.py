@@ -86,7 +86,7 @@ def get_weather(city: str, days: int = 1) -> str:
         )
         places = geo.get("results") or []
         if not places:
-            return f"Місто «{city}» не знайдено в геокодері. Перевір назву."
+            return f"Помилка: місто «{city}» не знайдено в геокодері. Перевір назву."
 
         place = places[0]
         forecast = _get_json(
@@ -166,7 +166,7 @@ def get_nbu_rate(currency_code: str, amount: float = 1.0) -> str:
         return f"Помилка запиту курсу: {exc}"
 
     if not data:
-        return f"НБУ не знає валюти «{currency_code}». Перевір код."
+        return f"Помилка: НБУ не знає валюти «{currency_code}». Перевір код."
 
     row = data[0]
     total = row["rate"] * amount
@@ -223,14 +223,14 @@ def get_wiki_summary(topic: str, lang: str = "uk") -> str:
         data = _get_json(url)
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
-            return f"У Вікіпедії ({lang}) немає статті «{topic}»."
+            return f"Помилка: у Вікіпедії ({lang}) немає статті «{topic}»."
         return f"Помилка запиту до Вікіпедії: {exc}"
     except httpx.HTTPError as exc:
         return f"Помилка запиту до Вікіпедії: {exc}"
 
     extract = data.get("extract")
     if not extract:
-        return f"Стаття «{topic}» знайдена, але без тексту."
+        return f"Помилка: стаття «{topic}» знайдена, але без тексту."
     page_url = data.get("content_urls", {}).get("desktop", {}).get("page", "")
     return f"{data.get('title', topic)}: {extract}\nДжерело: {page_url}"
 
